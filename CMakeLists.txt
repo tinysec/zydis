@@ -20,7 +20,16 @@ include(GNUInstallDirs)
 
 option(ZYDIS_INSTALL "Install the zydis CMake package" "${_zydis_is_top_level}")
 
-option(ZYDIS_KERNEL_MODE "Build for Windows kernel-mode consumers" OFF)
+set(_zydis_kernel_mode_default OFF)
+if(WDK7 AND DEFINED WDK7_DEFAULT_MODE)
+    string(TOUPPER "${WDK7_DEFAULT_MODE}" _zydis_wdk7_default_mode)
+    if(_zydis_wdk7_default_mode STREQUAL "KERNEL")
+        set(_zydis_kernel_mode_default ON)
+    endif()
+endif()
+option(ZYDIS_KERNEL_MODE
+    "Build for Windows kernel-mode consumers"
+    "${_zydis_kernel_mode_default}")
 option(ZYAN_NO_LIBC "Build without C runtime library dependencies" "${ZYDIS_KERNEL_MODE}")
 
 option(ZYDIS_MINIMAL_MODE
@@ -86,7 +95,7 @@ function(_zydis_apply_common_settings target_name)
         target_compile_definitions("${target_name}" PRIVATE "_CRT_SECURE_NO_WARNINGS")
         target_compile_options("${target_name}" PRIVATE /W3)
 
-        if(ZYAN_NO_LIBC)
+        if(ZYAN_NO_LIBC AND NOT WDK7)
             target_compile_options("${target_name}" PRIVATE /GS- /Zl)
             set_property(TARGET "${target_name}" PROPERTY MSVC_RUNTIME_LIBRARY "")
         endif()

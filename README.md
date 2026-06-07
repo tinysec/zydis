@@ -31,23 +31,22 @@ cmake --install build --prefix install
 
 ## WDK 7 Build
 
-Open a normal command prompt and enter the WDK 7 environment first. The
-toolchain file expects `setenv.bat` to select the WDK compiler and paths.
+Use the copied WDK 7 toolchain file directly. It selects the WDK compiler from
+`WDK7_ROOT`/`W7BASE`, or from `C:\WinDDK\7600.16385.1` by default.
 
 ```bat
-call C:\WinDDK\7600.16385.1\bin\setenv.bat C:\WinDDK\7600.16385.1 fre x86 WIN7 no_oacr
 cmake -S . -B build-wdk7-x86 -G "NMake Makefiles" ^
-  -DCMAKE_TOOLCHAIN_FILE=cmake\toolchains\wdk7.cmake ^
-  -DZYDIS_KERNEL_MODE=ON ^
-  -DZYDIS_WDK7_COMPAT=ON ^
+  "-DCMAKE_TOOLCHAIN_FILE=cmake/wdk7.cmake" ^
+  -DWDK7_ARCH=i386 ^
+  -DWDK7_DEFAULT_MODE=KERNEL ^
   -DZYDIS_INSTALL=ON
 cmake --build build-wdk7-x86
 ```
 
-Use `x64` instead of `x86` in the `setenv.bat` command for an AMD64 build.
-`ZYDIS_WDK7_COMPAT=ON` selects the WDK 7 compatible no-libc minimal decoder
-profile. It enables `ZYAN_NO_LIBC`, `_KERNEL_MODE`, `/GS-`, and `/Zl`, and
-disables encoder/formatter sources that require newer compiler support.
+Use `-DWDK7_ARCH=amd64` for an AMD64 build. `WDK7_DEFAULT_MODE=KERNEL`
+automatically selects the Zydis WDK 7 compatible no-libc minimal decoder
+profile and disables encoder/formatter sources that require newer compiler
+support.
 
 ## Use From Another CMake Project
 
