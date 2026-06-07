@@ -1,0 +1,112 @@
+name: build
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - "**"
+
+env:
+  ZYDIS_VERSION: 4.1.1
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: derive version
+        id: v
+        shell: bash
+        run: |
+          VERSION="${ZYDIS_VERSION}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [[ "${TAG_VERSION}" != "${VERSION}" ]]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match ZYDIS_VERSION ${VERSION}"
+              exit 1
+            fi
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Zydis version: ${VERSION}"
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: configure
+        run: |
+          cmake -S . -B build \
+            -DZYDIS_INSTALL=ON \
+            -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+
+      - name: build
+        run: cmake --build build --parallel
+
+      - name: install
+        run: cmake --install build --prefix install
+
+      - name: verify installed package
+        run: |
+          mkdir -p smoke
+          cat > smoke/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(zydis_smoke LANGUAGES C)
+          find_package(zydis ${{ needs.version.outputs.version }} EXACT CONFIG REQUIRED)
+          add_executable(smoke main.c)
+          target_link_libraries(smoke PRIVATE zydis::zydis)
+          EOF
+          cat > smoke/main.c <<'EOF'
+          #include <Zydis/Zydis.h>
+          int main(void) { return ZydisGetVersion() == 0; }
+          EOF
+          cmake -S smoke -B smoke-build -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/install"
+          cmake --build smoke-build --parallel
+
+      - name: package
+        run: |
+          mkdir -p dist
+          cd install
+          cmake -E tar cf "${GITHUB_WORKSPACE}/dist/zydis-v${{ needs.version.outputs.version }}.zip" --format=zip -- .
+          cd "${GITHUB_WORKSPACE}"
+          ls -la dist
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zydis-dist
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs:
+      - version
+      - build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: zydis-dist
+          path: dist
+
+      - name: create release
+        uses: softprops/action-gh-release@v1
+        continue-on-error: true
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            dist/*
