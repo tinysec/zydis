@@ -375,10 +375,6 @@ if(ZYDIS_INSTALL)
         DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
     install(
-        FILES "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_LICENSES/Zycore-LICENSE"
-        DESTINATION "${CMAKE_INSTALL_DOCDIR}/third-party")
-
-    install(
         EXPORT zydisTargets
         FILE zydisTargets.cmake
         NAMESPACE zydis::
