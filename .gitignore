@@ -4,6 +4,7 @@
 *.lo
 *.o
 *.obj
+*.iobj
 *.gch
 *.pch
 *.so
@@ -11,9 +12,11 @@
 *.dll
 *.lib
 *.a
+*.exp
 *.exe
 *.out
 *.app
+*.sys
 
 # CMake
 CMakeLists.txt.user
@@ -27,11 +30,36 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps/
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+
+# MSVC/WDK intermediates
+*.idb
+*.ilk
+*.ipdb
+*.pdb
+*.map
+*.res
+*.sbr
+*.bsc
+*.tlog
+*.lastbuildstate
+*.recipe
+*.VC.db
+*.VC.VC.opendb
+*.suo
 
 # Local builds and IDEs
 /build*/
 /install*/
+/.xmake/
+/.vscode/
 /.vs/
 /.idea/
 /cmake-build-*/
 /temp/
+/dist/
+/out/
+/artifacts/

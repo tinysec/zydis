@@ -44,9 +44,9 @@ cmake --build build-wdk7-x86
 ```
 
 Use `-DWDK7_ARCH=amd64` for an AMD64 build. `WDK7_DEFAULT_MODE=KERNEL`
-automatically selects the Zydis WDK 7 compatible no-libc minimal decoder
-profile and disables encoder/formatter sources that require newer compiler
-support.
+selects the toolchain's kernel compile settings and makes `ZYDIS_KERNEL_MODE`
+default to `ON`, which enables the Zydis WDK 7 compatible no-libc minimal
+decoder profile.
 
 ## Use From Another CMake Project
 

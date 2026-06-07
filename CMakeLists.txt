@@ -20,12 +20,18 @@ include(GNUInstallDirs)
 
 option(ZYDIS_INSTALL "Install the zydis CMake package" "${_zydis_is_top_level}")
 
-set(_zydis_kernel_mode_default OFF)
+set(_zydis_wdk7_default_mode "")
+set(_zydis_wdk7_default_mode_is_kernel OFF)
 if(WDK7 AND DEFINED WDK7_DEFAULT_MODE)
     string(TOUPPER "${WDK7_DEFAULT_MODE}" _zydis_wdk7_default_mode)
     if(_zydis_wdk7_default_mode STREQUAL "KERNEL")
-        set(_zydis_kernel_mode_default ON)
+        set(_zydis_wdk7_default_mode_is_kernel ON)
     endif()
+endif()
+
+set(_zydis_kernel_mode_default OFF)
+if(_zydis_wdk7_default_mode_is_kernel)
+    set(_zydis_kernel_mode_default ON)
 endif()
 option(ZYDIS_KERNEL_MODE
     "Build for Windows kernel-mode consumers"
@@ -51,7 +57,7 @@ option(ZYDIS_COMPILE_AS_CXX_FOR_OLD_MSVC
     "${_zydis_old_msvc_default}")
 
 set(_zydis_wdk7_compat_default OFF)
-if(ZYDIS_KERNEL_MODE AND _zydis_old_msvc_default)
+if(ZYDIS_KERNEL_MODE AND WDK7)
     set(_zydis_wdk7_compat_default ON)
 endif()
 option(ZYDIS_WDK7_COMPAT
@@ -68,6 +74,15 @@ if(ZYDIS_WDK7_COMPAT)
         "Enable minimal mode (forces ZYDIS_DECODER_MODE_MINIMAL runtime option)" FORCE)
     set(ZYDIS_FEATURE_ENCODER OFF CACHE BOOL "Enable instruction encoding functionality" FORCE)
     set(ZYDIS_FEATURE_FORMATTER OFF CACHE BOOL "Enable instruction formatting functionality" FORCE)
+endif()
+
+if(WDK7 AND ZYDIS_KERNEL_MODE AND NOT _zydis_wdk7_default_mode_is_kernel)
+    foreach(_zydis_lang C CXX)
+        set(CMAKE_${_zydis_lang}_FLAGS "")
+        foreach(_zydis_config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+            set(CMAKE_${_zydis_lang}_FLAGS_${_zydis_config} "")
+        endforeach()
+    endforeach()
 endif()
 
 if(ZYDIS_KERNEL_MODE AND NOT ZYAN_NO_LIBC)
@@ -107,6 +122,20 @@ function(_zydis_apply_common_settings target_name)
 
     if(ZYDIS_KERNEL_MODE)
         target_compile_definitions("${target_name}" PUBLIC "_KERNEL_MODE")
+
+        if(WDK7 AND TARGET WDK7::Kernel AND NOT _zydis_wdk7_default_mode_is_kernel)
+            get_target_property(_wdk7_kernel_include_dirs
+                WDK7::Kernel INTERFACE_INCLUDE_DIRECTORIES)
+            if(_wdk7_kernel_include_dirs)
+                target_include_directories("${target_name}" PRIVATE ${_wdk7_kernel_include_dirs})
+            endif()
+
+            get_target_property(_wdk7_kernel_compile_options
+                WDK7::Kernel INTERFACE_COMPILE_OPTIONS)
+            if(_wdk7_kernel_compile_options)
+                target_compile_options("${target_name}" PRIVATE ${_wdk7_kernel_compile_options})
+            endif()
+        endif()
     endif()
 endfunction()
 
