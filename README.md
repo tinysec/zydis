@@ -1,12 +1,12 @@
-# zydis
+# wdk-zydis
 
-[![build](https://github.com/tinysec/zydis/actions/workflows/ci.yaml/badge.svg)](https://github.com/tinysec/zydis/actions)
-[![version](https://img.shields.io/badge/version-4.1.1-blue)](https://github.com/tinysec/zydis/releases/tag/v4.1.1)
+[![build](https://github.com/tinysec/wdk-zydis/actions/workflows/ci.yaml/badge.svg)](https://github.com/tinysec/wdk-zydis/actions)
+[![version](https://img.shields.io/badge/version-4.1.1-blue)](https://github.com/tinysec/wdk-zydis/releases/tag/v4.1.1)
 [![cmake](https://img.shields.io/badge/CMake-package-064f8c)](#cmake-usage)
 
 ## Introduction
 
-`zydis` is a standalone CMake package for Zydis 4.1.1. It builds Zydis and
+`wdk-zydis` is a standalone CMake package for Zydis 4.1.1. It builds Zydis and
 Zycore as static libraries and exports the `zydis::zydis` CMake target for
 downstream projects.
 
@@ -27,7 +27,7 @@ include(FetchContent)
 
 FetchContent_Declare(
     zydis
-    GIT_REPOSITORY https://github.com/tinysec/zydis.git
+    GIT_REPOSITORY https://github.com/tinysec/wdk-zydis.git
     GIT_TAG v4.1.1)
 FetchContent_MakeAvailable(zydis)
 
