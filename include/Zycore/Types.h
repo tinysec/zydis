@@ -39,7 +39,8 @@
 /* ============================================================================================== */
 
 #if defined(ZYAN_NO_LIBC) || \
-    (defined(ZYAN_MSVC) && defined(ZYAN_KERNEL)) // The WDK LibC lacks stdint.h.
+    (defined(ZYAN_MSVC) && defined(ZYAN_KERNEL)) || \
+    (defined(ZYAN_MSVC) && (_MSC_VER < 1600)) // The WDK LibC lacks stdint.h (VC9 user mode too).
     // No LibC mode, use compiler built-in types / macros.
 #   if defined(ZYAN_MSVC) || defined(ZYAN_ICC)
         typedef unsigned __int8                 ZyanU8;

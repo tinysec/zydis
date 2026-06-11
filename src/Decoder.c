@@ -1183,7 +1183,7 @@ static void ZydisSetOperandSizeAndElementInfo(const ZydisDecoderContext* context
     // Element-type and -size
     if (definition->element_type && (definition->element_type != ZYDIS_IELEMENT_TYPE_VARIABLE))
     {
-        ZydisGetElementInfo(definition->element_type, &operand->element_type,
+        ZydisGetElementInfo((ZydisInternalElementType)definition->element_type, &operand->element_type,
             &operand->element_size);
         if (!operand->element_size)
         {
@@ -1227,10 +1227,10 @@ static ZyanStatus ZydisDecodeOperandRegister(const ZydisDecodedInstruction* inst
     {
         if ((instruction->attributes & ZYDIS_ATTRIB_HAS_REX) && (register_id >= 4))
         {
-            operand->reg.value = ZYDIS_REGISTER_SPL + (register_id - 4);
+            operand->reg.value = (ZydisRegister)(ZYDIS_REGISTER_SPL + (register_id - 4));
         } else
         {
-            operand->reg.value = ZYDIS_REGISTER_AL + register_id;
+            operand->reg.value = (ZydisRegister)(ZYDIS_REGISTER_AL + register_id);
         }
     } else
     {
@@ -1314,8 +1314,8 @@ static ZyanStatus ZydisDecodeOperandMemory(const ZydisDecoderContext* context,
     }
     case 32:
     {
-        operand->mem.base = ZYDIS_REGISTER_EAX + ZydisCalcRegisterId(context, instruction,
-            ZYDIS_REG_ENCODING_BASE, ZYDIS_REGCLASS_GPR32);
+        operand->mem.base = (ZydisRegister)(ZYDIS_REGISTER_EAX + ZydisCalcRegisterId(context, instruction,
+            ZYDIS_REG_ENCODING_BASE, ZYDIS_REGCLASS_GPR32));
         switch (instruction->raw.modrm.mod)
         {
         case 0:
@@ -1371,8 +1371,8 @@ static ZyanStatus ZydisDecodeOperandMemory(const ZydisDecoderContext* context,
     }
     case 64:
     {
-        operand->mem.base = ZYDIS_REGISTER_RAX + ZydisCalcRegisterId(context, instruction,
-            ZYDIS_REG_ENCODING_BASE, ZYDIS_REGCLASS_GPR64);
+        operand->mem.base = (ZydisRegister)(ZYDIS_REGISTER_RAX + ZydisCalcRegisterId(context, instruction,
+            ZYDIS_REG_ENCODING_BASE, ZYDIS_REGCLASS_GPR64));
         switch (instruction->raw.modrm.mod)
         {
         case 0:
@@ -1464,7 +1464,7 @@ static void ZydisDecodeOperandImplicitRegister(const ZydisDecoder* decoder,
     switch (definition->op.reg.type)
     {
     case ZYDIS_IMPLREG_TYPE_STATIC:
-        operand->reg.value = definition->op.reg.reg.reg;
+        operand->reg.value = (ZydisRegister)definition->op.reg.reg.reg;
         break;
     case ZYDIS_IMPLREG_TYPE_GPR_OSZ:
     {
@@ -1600,7 +1600,8 @@ static ZyanStatus ZydisDecodeOperands(const ZydisDecoder* decoder, const ZydisDe
     ZYAN_ASSERT(operand_count);
     ZYAN_ASSERT(operand_count <= instruction->operand_count);
 
-    const ZydisInstructionDefinition* definition = context->definition;
+    const ZydisInstructionDefinition* definition =
+        (const ZydisInstructionDefinition*)context->definition;
     const ZydisOperandDefinition* operand = ZydisGetOperandDefinitions(definition);
 
     ZYAN_MEMSET(operands, 0, sizeof(ZydisDecodedOperand) * operand_count);
@@ -1611,7 +1612,7 @@ static ZyanStatus ZydisDecodeOperands(const ZydisDecoder* decoder, const ZydisDe
         ZydisRegisterClass register_class = ZYDIS_REGCLASS_INVALID;
 
         operands[i].id = i;
-        operands[i].visibility = operand->visibility;
+        operands[i].visibility = (ZydisOperandVisibility)operand->visibility;
         operands[i].actions = operand->actions;
         ZYAN_ASSERT(!(operand->actions &
             ZYDIS_OPERAND_ACTION_READ & ZYDIS_OPERAND_ACTION_CONDREAD) ||
@@ -1646,7 +1647,7 @@ static ZyanStatus ZydisDecodeOperands(const ZydisDecoder* decoder, const ZydisDe
             goto FinalizeOperand;
         }
 
-        operands[i].encoding = operand->op.encoding;
+        operands[i].encoding = (ZydisOperandEncoding)operand->op.encoding;
 
         // Register operands
         switch (operand->type)
@@ -2717,7 +2718,7 @@ static void ZydisSetAVXInformation(ZydisDecoderContext* context,
                 // Noting to do here
                 break;
             case ZYDIS_EVEX_FUNC_RC:
-                instruction->avx.rounding.mode = ZYDIS_ROUNDING_MODE_RN + context->vector_unified.LL;
+                instruction->avx.rounding.mode = (ZydisRoundingMode)(ZYDIS_ROUNDING_MODE_RN + context->vector_unified.LL);
                 ZYAN_FALLTHROUGH;
             case ZYDIS_EVEX_FUNC_SAE:
                 instruction->avx.has_sae = ZYAN_TRUE;
@@ -2728,17 +2729,17 @@ static void ZydisSetAVXInformation(ZydisDecoderContext* context,
         }
 
         // Mask
-        instruction->avx.mask.reg = ZYDIS_REGISTER_K0 + instruction->raw.evex.aaa;
+        instruction->avx.mask.reg = (ZydisRegister)(ZYDIS_REGISTER_K0 + instruction->raw.evex.aaa);
         switch (def->mask_override)
         {
         case ZYDIS_MASK_OVERRIDE_DEFAULT:
-            instruction->avx.mask.mode = ZYDIS_MASK_MODE_MERGING + instruction->raw.evex.z;
+            instruction->avx.mask.mode = (ZydisMaskMode)(ZYDIS_MASK_MODE_MERGING + instruction->raw.evex.z);
             break;
         case ZYDIS_MASK_OVERRIDE_ZEROING:
             instruction->avx.mask.mode = ZYDIS_MASK_MODE_ZEROING;
             break;
         case ZYDIS_MASK_OVERRIDE_CONTROL:
-            instruction->avx.mask.mode = ZYDIS_MASK_MODE_CONTROL + instruction->raw.evex.z;
+            instruction->avx.mask.mode = (ZydisMaskMode)(ZYDIS_MASK_MODE_CONTROL + instruction->raw.evex.z);
             break;
         default:
             ZYAN_UNREACHABLE;
@@ -2895,7 +2896,7 @@ static void ZydisSetAVXInformation(ZydisDecoderContext* context,
             // Nothing to do here
             break;
         case ZYDIS_MVEX_FUNC_RC:
-            instruction->avx.rounding.mode = ZYDIS_ROUNDING_MODE_RN + (instruction->raw.mvex.SSS & 3);
+            instruction->avx.rounding.mode = (ZydisRoundingMode)(ZYDIS_ROUNDING_MODE_RN + (instruction->raw.mvex.SSS & 3));
             ZYAN_FALLTHROUGH;
         case ZYDIS_MVEX_FUNC_SAE:
             if (instruction->raw.mvex.SSS >= 4)
@@ -2905,7 +2906,7 @@ static void ZydisSetAVXInformation(ZydisDecoderContext* context,
             break;
         case ZYDIS_MVEX_FUNC_SWIZZLE_32:
         case ZYDIS_MVEX_FUNC_SWIZZLE_64:
-            instruction->avx.swizzle.mode = ZYDIS_SWIZZLE_MODE_DCBA + instruction->raw.mvex.SSS;
+            instruction->avx.swizzle.mode = (ZydisSwizzleMode)(ZYDIS_SWIZZLE_MODE_DCBA + instruction->raw.mvex.SSS);
             break;
         case ZYDIS_MVEX_FUNC_SF_32:
         case ZYDIS_MVEX_FUNC_SF_32_BCST:
@@ -3049,7 +3050,7 @@ static void ZydisSetAVXInformation(ZydisDecoderContext* context,
 
         // Mask
         instruction->avx.mask.mode = ZYDIS_MASK_MODE_MERGING;
-        instruction->avx.mask.reg = ZYDIS_REGISTER_K0 + instruction->raw.mvex.kkk;
+        instruction->avx.mask.reg = (ZydisRegister)(ZYDIS_REGISTER_K0 + instruction->raw.mvex.kkk);
 #else
         ZYAN_UNREACHABLE;
 #endif
@@ -4846,16 +4847,16 @@ static ZyanStatus ZydisDecodeInstruction(ZydisDecoderState* state,
                 instruction->operand_count_visible = definition->operand_count_visible;
                 state->context->definition = definition;
 
-                instruction->meta.category = definition->category;
-                instruction->meta.isa_set = definition->isa_set;
-                instruction->meta.isa_ext = definition->isa_ext;
-                instruction->meta.branch_type = definition->branch_type;
+                instruction->meta.category = (ZydisInstructionCategory)definition->category;
+                instruction->meta.isa_set = (ZydisISASet)definition->isa_set;
+                instruction->meta.isa_ext = (ZydisISAExt)definition->isa_ext;
+                instruction->meta.branch_type = (ZydisBranchType)definition->branch_type;
                 ZYAN_ASSERT((instruction->meta.branch_type == ZYDIS_BRANCH_TYPE_NONE) ||
                         ((instruction->meta.category == ZYDIS_CATEGORY_CALL) ||
                          (instruction->meta.category == ZYDIS_CATEGORY_COND_BR) ||
                          (instruction->meta.category == ZYDIS_CATEGORY_UNCOND_BR) ||
                          (instruction->meta.category == ZYDIS_CATEGORY_RET)));
-                instruction->meta.exception_class = definition->exception_class;
+                instruction->meta.exception_class = (ZydisExceptionClass)definition->exception_class;
 
                 if (!(state->decoder->decoder_mode & (1 << ZYDIS_DECODER_MODE_MINIMAL)))
                 {

@@ -226,13 +226,20 @@ typedef struct ZydisOperandDefinition_
     ZyanU8 actions                         ZYAN_BITFIELD(ZYDIS_OPERAND_ACTION_REQUIRED_BITS);
     ZyanU16 size[3];
     ZyanU8 element_type                    ZYAN_BITFIELD(ZYDIS_IELEMENT_TYPE_REQUIRED_BITS);
-    union
+    /* `op` and the nested `reg` are plain structs (not unions) so the generated
+     * OperandDefinitions table can be initialized positionally. C99/C++ designated
+     * initializers ({ .reg = ... }) are rejected by the WDK 7 (VC9) compiler in
+     * both C and C++ modes, and a non-first union member cannot be initialized
+     * positionally. Only one variant is meaningful per operand (the decoder reads
+     * it by name based on the operand type), so widening these to structs is a few
+     * bytes per row with no behavioral change. */
+    struct
     {
         ZyanU8 encoding                    ZYAN_BITFIELD(ZYDIS_OPERAND_ENCODING_REQUIRED_BITS);
         struct
         {
             ZyanU8 type                    ZYAN_BITFIELD(ZYDIS_IMPLREG_TYPE_REQUIRED_BITS);
-            union
+            struct
             {
                 ZyanU16 reg                ZYAN_BITFIELD(ZYDIS_REGISTER_REQUIRED_BITS);
                 ZyanU8 id                  ZYAN_BITFIELD(6);

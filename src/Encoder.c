@@ -2305,7 +2305,7 @@ static ZyanBool ZydisAreEvexFeaturesCompatible(const ZydisEncoderInstructionMatc
         {
             return ZYAN_FALSE;
         }
-        if (!ZydisIsBroadcastModeCompatible(evex_def, match->definition->vector_length,
+        if (!ZydisIsBroadcastModeCompatible(evex_def, (ZydisVectorLength)match->definition->vector_length,
             request->evex.broadcast))
         {
             return ZYAN_FALSE;
@@ -2915,7 +2915,7 @@ static ZyanBool ZydisHandleSwappableDefinition(ZydisEncoderInstructionMatch *mat
     if ((dest_id <= 7) && (src_id > 7))
     {
         ++match->definition;
-        ZydisGetInstructionDefinition(match->definition->encoding,
+        ZydisGetInstructionDefinition((ZydisInstructionEncoding)match->definition->encoding,
             match->definition->instruction_reference, &match->base_definition);
         match->operands = ZydisGetOperandDefinitions(match->base_definition);
         return ZYAN_TRUE;
@@ -2942,7 +2942,7 @@ static ZyanStatus ZydisFindMatchingDefinition(const ZydisEncoderRequest *request
     const ZydisEncodableInstruction *definition = ZYAN_NULL;
     const ZyanU8 definition_count = ZydisGetEncodableInstructions(request->mnemonic, &definition);
     ZYAN_ASSERT(definition && definition_count);
-    const ZydisWidthFlag mode_width = ZydisGetMachineModeWidth(request->machine_mode) >> 4;
+    const ZydisWidthFlag mode_width = (ZydisWidthFlag)(ZydisGetMachineModeWidth(request->machine_mode) >> 4);
     const ZyanBool is_compat =
         (request->machine_mode == ZYDIS_MACHINE_MODE_LONG_COMPAT_16) ||
         (request->machine_mode == ZYDIS_MACHINE_MODE_LONG_COMPAT_32);
@@ -2957,14 +2957,14 @@ static ZyanStatus ZydisFindMatchingDefinition(const ZydisEncoderRequest *request
             continue;
         }
         const ZydisInstructionDefinition *base_definition = ZYAN_NULL;
-        ZydisGetInstructionDefinition(definition->encoding, definition->instruction_reference,
+        ZydisGetInstructionDefinition((ZydisInstructionEncoding)definition->encoding, definition->instruction_reference,
             &base_definition);
         if (!(definition->modes & mode_width))
         {
             continue;
         }
         if ((request->allowed_encodings != ZYDIS_ENCODABLE_ENCODING_DEFAULT) &&
-            !(ZydisGetEncodableEncoding(definition->encoding) & request->allowed_encodings))
+            !(ZydisGetEncodableEncoding((ZydisInstructionEncoding)definition->encoding) & request->allowed_encodings))
         {
             continue;
         }
@@ -3890,8 +3890,8 @@ static ZyanStatus ZydisBuildInstruction(ZydisEncoderInstructionMatch *match,
 {
     ZYAN_MEMSET(instruction, 0, sizeof(ZydisEncoderInstruction));
     instruction->attributes = match->attributes;
-    instruction->encoding = match->definition->encoding;
-    instruction->opcode_map = match->definition->opcode_map;
+    instruction->encoding = (ZydisInstructionEncoding)match->definition->encoding;
+    instruction->opcode_map = (ZydisOpcodeMap)match->definition->opcode_map;
     instruction->opcode = match->definition->opcode;
     instruction->rex_w = match->definition->rex_w;
     instruction->mod = (match->definition->modrm >> 6) & 3;
@@ -4685,7 +4685,7 @@ ZYDIS_EXPORT ZyanStatus ZydisEncoderDecodedInstructionToEncoderRequest(
     default:
         return ZYAN_STATUS_INVALID_ARGUMENT;
     }
-    request->allowed_encodings = 1 << instruction->encoding;
+    request->allowed_encodings = (ZydisEncodableEncoding)(1 << instruction->encoding);
 
     if ((operand_count > ZYDIS_ENCODER_MAX_OPERANDS) || 
         (operand_count > instruction->operand_count_visible))
