@@ -176,7 +176,7 @@ extern "C" {
         ZYAN_CHECK(ZydisFormatterBufferAppendPredefined(buffer, TOK_ ## name)); \
     } else \
     { \
-        ZYAN_CHECK(ZydisStringAppendShortCase(&buffer->string, &STR_ ## name, letter_case)); \
+        ZYAN_CHECK(ZydisStringAppendShortCase(&buffer->string, &STR_ ## name, (ZydisLetterCase)(letter_case))); \
     }
 
 /* ---------------------------------------------------------------------------------------------- */

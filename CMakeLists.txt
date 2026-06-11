@@ -10,15 +10,10 @@ endif()
 
 project(zydis VERSION "${ZYDIS_VERSION}" LANGUAGES C)
 
-if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    set(_zydis_is_top_level TRUE)
-else()
-    set(_zydis_is_top_level FALSE)
-endif()
-
-include(GNUInstallDirs)
-
-option(ZYDIS_INSTALL "Install the zydis CMake package" "${_zydis_is_top_level}")
+# This fork is consumed only as a local CMake dependency (FetchContent /
+# add_subdirectory), so it exposes the Zydis::Zydis / Zycore::Zycore targets
+# directly. It deliberately does NOT support install()/find_package() - no export
+# rules, no generated package config - which keeps the build surface small.
 
 set(_zydis_wdk7_default_mode "")
 set(_zydis_wdk7_default_mode_is_kernel OFF)
@@ -103,8 +98,7 @@ endif()
 function(_zydis_apply_common_settings target_name)
     target_include_directories("${target_name}"
         PUBLIC
-            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
 
     if(MSVC)
         target_compile_definitions("${target_name}" PRIVATE "_CRT_SECURE_NO_WARNINGS")
@@ -357,44 +351,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     ${ZYDIS_SEGMENT_HEADERS}
     ${ZYDIS_SEGMENT_SOURCES})
 
-if(ZYDIS_INSTALL)
-    install(
-        TARGETS zycore zydis
-        EXPORT zydisTargets
-        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-
-    install(
-        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-
-    install(
-        FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
-        DESTINATION "${CMAKE_INSTALL_DOCDIR}")
-
-    install(
-        EXPORT zydisTargets
-        FILE zydisTargets.cmake
-        NAMESPACE zydis::
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/zydis")
-
-    include(CMakePackageConfigHelpers)
-
-    write_basic_package_version_file(
-        "${PROJECT_BINARY_DIR}/zydisConfigVersion.cmake"
-        VERSION "${PROJECT_VERSION}"
-        COMPATIBILITY SameMajorVersion)
-
-    configure_package_config_file(
-        "${PROJECT_SOURCE_DIR}/cmake/Config.cmake.in"
-        "${PROJECT_BINARY_DIR}/zydisConfig.cmake"
-        INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/zydis")
-
-    install(
-        FILES
-            "${PROJECT_BINARY_DIR}/zydisConfig.cmake"
-            "${PROJECT_BINARY_DIR}/zydisConfigVersion.cmake"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/zydis")
-endif()
+# install()/find_package() support intentionally omitted: this fork is consumed
+# only as a local CMake dependency (FetchContent / add_subdirectory), so the
+# Zydis::Zydis and Zycore::Zycore targets are used directly. No export rules and
+# no generated package config are produced.

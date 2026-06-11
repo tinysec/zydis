@@ -42,48 +42,31 @@ jobs:
         uses: actions/checkout@v5
 
       - name: configure
-        run: |
-          cmake -S . -B build \
-            -DZYDIS_INSTALL=ON \
-            -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+        run: cmake -S . -B build -DZYDIS_VERSION=${{ needs.version.outputs.version }}
 
       - name: build
         run: cmake --build build --parallel
 
-      - name: install
-        run: cmake --install build --prefix install
-
-      - name: verify installed package
+      # This fork is consumed only as a local CMake dependency (FetchContent /
+      # add_subdirectory) - no install()/find_package(). Verify that consumption
+      # path directly: build a tiny consumer that add_subdirectory()s this tree
+      # and links the Zydis::Zydis target.
+      - name: verify local consumption
         run: |
           mkdir -p smoke
           cat > smoke/CMakeLists.txt <<'EOF'
           cmake_minimum_required(VERSION 3.20)
           project(zydis_smoke LANGUAGES C)
-          find_package(zydis ${{ needs.version.outputs.version }} EXACT CONFIG REQUIRED)
+          add_subdirectory("${ZYDIS_SOURCE_DIR}" zydis_build)
           add_executable(smoke main.c)
-          target_link_libraries(smoke PRIVATE zydis::zydis)
+          target_link_libraries(smoke PRIVATE Zydis::Zydis)
           EOF
           cat > smoke/main.c <<'EOF'
           #include <Zydis/Zydis.h>
           int main(void) { return ZydisGetVersion() == 0; }
           EOF
-          cmake -S smoke -B smoke-build -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/install"
+          cmake -S smoke -B smoke-build -DZYDIS_SOURCE_DIR="${GITHUB_WORKSPACE}"
           cmake --build smoke-build --parallel
-
-      - name: package
-        run: |
-          mkdir -p dist
-          cd install
-          cmake -E tar cf "${GITHUB_WORKSPACE}/dist/zydis-v${{ needs.version.outputs.version }}.zip" --format=zip -- .
-          cd "${GITHUB_WORKSPACE}"
-          ls -la dist
-
-      - name: upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zydis-dist
-          path: dist/*
-          if-no-files-found: error
 
   release:
     needs:
@@ -94,12 +77,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: zydis-dist
-          path: dist
-
+      # Consumers pull this fork by git tag (FetchContent), so the release only
+      # needs to exist - GitHub attaches the source archives automatically.
       - name: create release
         uses: softprops/action-gh-release@v1
         continue-on-error: true
@@ -108,5 +87,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
-          files: |
-            dist/*

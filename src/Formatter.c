@@ -85,7 +85,7 @@ static void ZydisFormatterBufferInitTokenized(ZydisFormatterBuffer* buffer,
     ZYAN_ASSERT(user_buffer);
     ZYAN_ASSERT(length);
 
-    *first_token = user_buffer;
+    *first_token = (ZydisFormatterToken*)user_buffer;
     (*first_token)->type = ZYDIS_TOKEN_INVALID;
     (*first_token)->next = 0;
 

@@ -452,7 +452,7 @@ ZyanStatus ZydisFormatterBasePrintPrefixes(const ZydisFormatter* formatter,
                     } else
                     {
                         ZYAN_CHECK(ZydisStringAppendShortCase(&buffer->string,
-                            STR_PREF_REX[value & 0x0F], formatter->case_prefixes));
+                            STR_PREF_REX[value & 0x0F], (ZydisLetterCase)formatter->case_prefixes));
                     }
                 } else
                 {
