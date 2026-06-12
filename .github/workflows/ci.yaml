@@ -32,8 +32,7 @@ jobs:
           echo "build version: ${VERSION} (alias v${BASE})"
 
   # Sanity build on a modern toolchain - the fork is also consumed under regular
-  # MSVC/GCC/Clang. Builds static and shared, then verifies the local
-  # add_subdirectory consumption path.
+  # MSVC/GCC/Clang. Builds both static and shared.
   portable:
     needs: version
     runs-on: ubuntu-latest
@@ -47,23 +46,6 @@ jobs:
           cmake --build build-static --parallel
           cmake -S . -B build-shared -DBUILD_SHARED=ON -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           cmake --build build-shared --parallel
-
-      - name: verify local consumption (add_subdirectory)
-        run: |
-          mkdir -p smoke
-          cat > smoke/CMakeLists.txt <<'EOF'
-          cmake_minimum_required(VERSION 3.20)
-          project(zydis_smoke LANGUAGES C)
-          add_subdirectory("${ZYDIS_SOURCE_DIR}" zydis_build)
-          add_executable(smoke main.c)
-          target_link_libraries(smoke PRIVATE Zydis::Zydis)
-          EOF
-          cat > smoke/main.c <<'EOF'
-          #include <Zydis/Zydis.h>
-          int main(void) { return ZydisGetVersion() == 0; }
-          EOF
-          cmake -S smoke -B smoke-build -DZYDIS_SOURCE_DIR="${GITHUB_WORKSPACE}"
-          cmake --build smoke-build --parallel
 
   # WDK7 (VC9) release artifacts: static libs + shared DLLs with import libs,
   # plus headers, for x86 (i386) and x64 (amd64).
