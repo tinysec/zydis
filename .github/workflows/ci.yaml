@@ -175,13 +175,8 @@ jobs:
             --notes "WDK7 (VC9) build of Zydis ${BASE}, CI build ${{ github.run_number }}." \
             dist/*.zip
 
-          # 2. rolling alias: delete the existing v${BASE} release AND its tag (so it
-          #    is never left as an orphaned draft), then recreate it at this commit.
-          if gh release view "v${BASE}" >/dev/null 2>&1; then
-            gh release delete "v${BASE}" --yes --cleanup-tag
-          fi
-          gh release create "v${BASE}" \
-            --target "${SHA}" \
-            --title "v${BASE}" \
-            --notes "Rolling alias - always the latest WDK7 build of Zydis ${BASE} (currently v${VERSION})." \
-            dist/*.zip
+          # 2. rolling alias: keep ONLY a tag (no release). Drop any pre-existing
+          #    v${BASE} release, then point the v${BASE} tag at this commit so
+          #    consumers can pin `GIT_TAG v${BASE}` to follow the latest build.
+          gh release delete "v${BASE}" --yes 2>/dev/null || true
+          git push origin --force "${SHA}:refs/tags/v${BASE}"
