@@ -2,42 +2,46 @@
 
 [![build](https://github.com/tinysec/wdk-zydis/actions/workflows/ci.yaml/badge.svg)](https://github.com/tinysec/wdk-zydis/actions)
 [![version](https://img.shields.io/badge/version-4.1.1-blue)](https://github.com/tinysec/wdk-zydis/releases/tag/v4.1.1)
-[![cmake](https://img.shields.io/badge/CMake-package-064f8c)](#cmake-usage)
 
 ## Introduction
 
-`wdk-zydis` is a standalone CMake package for Zydis 4.1.1. It builds Zydis and
-Zycore as static libraries and exports the `zydis::zydis` CMake target for
-downstream projects.
+A CMake build of [Zydis](https://github.com/zyantific/zydis) 4.1.1 (with Zycore)
+that compiles with the legacy WDK 7 (VC9 / MSVC 15.0) toolchain in its full
+decoder + formatter configuration. Consumed as a local CMake dependency
+(`FetchContent` / `add_subdirectory`); no install or `find_package`.
 
 ## Features
 
-- Zydis 4.1.1 packaged as a static CMake library.
-- Zycore 1.5.2 included as regular source files.
-- No Git submodules or configure-time dependency downloads.
-- Installable CMake package with `find_package(zydis CONFIG REQUIRED)`.
-- WDK 7 compatible kernel-mode build profile.
+- Zydis 4.1.1 + Zycore, plain source, no submodules.
+- Builds with WDK 7 (VC9) and modern MSVC / GCC / Clang.
+- Full decoder and formatter under WDK 7.
+- Static or shared library (`BUILD_SHARED_LIBS`), x86 and x64.
 
-## CMake Usage
+## Usage
 
-Use `FetchContent`:
+Add it as a local dependency and link `Zydis::Zydis`:
 
 ```cmake
 include(FetchContent)
-
 FetchContent_Declare(
     zydis
     GIT_REPOSITORY https://github.com/tinysec/wdk-zydis.git
     GIT_TAG v4.1.1)
 FetchContent_MakeAvailable(zydis)
 
-target_link_libraries(your_target PRIVATE zydis::zydis)
+target_link_libraries(your_target PRIVATE Zydis::Zydis)
 ```
 
-Use an installed package:
+Static library (default):
 
-```cmake
-find_package(zydis 4.1.1 CONFIG REQUIRED)
+```sh
+cmake -S . -B build
+cmake --build build
+```
 
-target_link_libraries(your_target PRIVATE zydis::zydis)
+Shared library (DLL + import lib):
+
+```sh
+cmake -S . -B build -DBUILD_SHARED_LIBS=ON
+cmake --build build
 ```
