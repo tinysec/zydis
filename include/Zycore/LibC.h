@@ -81,7 +81,15 @@ typedef va_list ZyanVAList;
 #define ZYAN_PUTS       puts
 #define ZYAN_SCANF      scanf
 #define ZYAN_SSCANF     sscanf
-#define ZYAN_VSNPRINTF  vsnprintf
+#if defined(ZYAN_MSVC) && (_MSC_VER < 1900)
+    // VC9 (WDK 7) through VC12 ship _vsnprintf, not the C99 vsnprintf (added in
+    // VS2015). It only differs on truncation (returns -1 instead of the needed
+    // length), which the shared-library link surfaces because Format.c is then
+    // always pulled in.
+#   define ZYAN_VSNPRINTF  _vsnprintf
+#else
+#   define ZYAN_VSNPRINTF  vsnprintf
+#endif
 
 /**
  * Defines the `ZyanFile` datatype.

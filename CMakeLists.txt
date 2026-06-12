@@ -179,11 +179,19 @@ if(NOT ZYAN_NO_LIBC)
     list(APPEND ZYCORE_SOURCES ${ZYCORE_EXTRA_SOURCES})
 endif()
 
-add_library(zycore STATIC ${ZYCORE_HEADERS} ${ZYCORE_SOURCES})
+add_library(zycore ${ZYCORE_HEADERS} ${ZYCORE_SOURCES})
 add_library(zydis::zycore ALIAS zycore)
 add_library(Zycore::Zycore ALIAS zycore)
 
-target_compile_definitions(zycore PUBLIC "ZYCORE_STATIC_BUILD")
+# Static (default): STATIC_BUILD makes the API macros expand to nothing, and it
+# is PUBLIC so consumers see it too. Shared (BUILD_SHARED_LIBS=ON): SHOULD_EXPORT
+# (PRIVATE) marks the API dllexport while this DLL is built; consumers without it
+# get dllimport. Supports both `cmake ...` (static) and `-DBUILD_SHARED_LIBS=ON`.
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(zycore PRIVATE "ZYCORE_SHOULD_EXPORT")
+else()
+    target_compile_definitions(zycore PUBLIC "ZYCORE_STATIC_BUILD")
+endif()
 set_target_properties(zycore PROPERTIES
     OUTPUT_NAME "Zycore"
     POSITION_INDEPENDENT_CODE ON)
@@ -285,13 +293,17 @@ if(ZYDIS_COMPILE_AS_CXX_FOR_OLD_MSVC)
         PROPERTIES LANGUAGE CXX)
 endif()
 
-add_library(zydis STATIC ${ZYDIS_BASE_HEADERS} ${ZYDIS_BASE_SOURCES} ${ZYDIS_GENERATED_TABLES})
+add_library(zydis ${ZYDIS_BASE_HEADERS} ${ZYDIS_BASE_SOURCES} ${ZYDIS_GENERATED_TABLES})
 add_library(zydis::zydis ALIAS zydis)
 add_library(Zydis::Zydis ALIAS zydis)
 
 target_link_libraries(zydis PUBLIC zycore)
 target_include_directories(zydis PRIVATE "src")
-target_compile_definitions(zydis PUBLIC "ZYDIS_STATIC_BUILD")
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(zydis PRIVATE "ZYDIS_SHOULD_EXPORT")
+else()
+    target_compile_definitions(zydis PUBLIC "ZYDIS_STATIC_BUILD")
+endif()
 set_target_properties(zydis PROPERTIES
     OUTPUT_NAME "Zydis"
     VERSION "${PROJECT_VERSION}"
