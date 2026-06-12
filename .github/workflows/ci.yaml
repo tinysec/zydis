@@ -4,11 +4,12 @@ on:
   push:
     branches:
       - "**"
-    tags:
-      - "v*"
   pull_request:
     branches:
       - "**"
+
+# The release tags (v<X.Y.Z>.<build> and the v<X.Y.Z> alias) are created BY this
+# workflow, so it must not trigger on tag pushes (that would recurse).
 
 env:
   ZYDIS_VERSION: 4.1.1
@@ -17,26 +18,22 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      base: ${{ steps.v.outputs.base }}        # X.Y.Z  - the Zydis semver
+      version: ${{ steps.v.outputs.version }}  # X.Y.Z.<build> - per-CI-build
     steps:
       - name: derive version
         id: v
         shell: bash
         run: |
-          VERSION="${ZYDIS_VERSION}"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG_VERSION="${GITHUB_REF_NAME#v}"
-            if [[ "${TAG_VERSION}" != "${VERSION}" ]]; then
-              echo "::error::Tag ${GITHUB_REF_NAME} does not match ZYDIS_VERSION ${VERSION}"
-              exit 1
-            fi
-          fi
+          BASE="${ZYDIS_VERSION}"
+          VERSION="${BASE}.${{ github.run_number }}"
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Zydis version: ${VERSION}"
+          echo "build version: ${VERSION} (alias v${BASE})"
 
   # Sanity build on a modern toolchain - the fork is also consumed under regular
-  # MSVC/GCC/Clang, not only WDK7. Builds both static and shared, then verifies
-  # the local-dependency consumption path (add_subdirectory).
+  # MSVC/GCC/Clang. Builds static and shared, then verifies the local
+  # add_subdirectory consumption path.
   portable:
     needs: version
     runs-on: ubuntu-latest
@@ -46,9 +43,9 @@ jobs:
 
       - name: build static and shared
         run: |
-          cmake -S . -B build-static -DBUILD_SHARED=OFF -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+          cmake -S . -B build-static -DBUILD_SHARED=OFF -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           cmake --build build-static --parallel
-          cmake -S . -B build-shared -DBUILD_SHARED=ON -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+          cmake -S . -B build-shared -DBUILD_SHARED=ON -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           cmake --build build-shared --parallel
 
       - name: verify local consumption (add_subdirectory)
@@ -94,9 +91,9 @@ jobs:
             echo setup-wdk7 did not prepare WDK7.
             exit /b 1
           )
-          set "VER=${{ needs.version.outputs.version }}"
+          set "BASE=${{ needs.version.outputs.base }}"
           set "ARCH=${{ matrix.arch }}"
-          set "STAGE=dist\zydis-v%VER%-wdk7-%ARCH%"
+          set "STAGE=dist\zydis-v%BASE%-wdk7-%ARCH%"
           if exist dist rmdir /s /q dist
           mkdir "%STAGE%\lib\static"
           mkdir "%STAGE%\lib\shared"
@@ -107,7 +104,7 @@ jobs:
           cmake -S . -B build-static -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
             -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
-            -DBUILD_SHARED=OFF -DZYDIS_VERSION=%VER%
+            -DBUILD_SHARED=OFF -DZYDIS_VERSION=%BASE%
           if errorlevel 1 exit /b 1
           cmake --build build-static
           if errorlevel 1 exit /b 1
@@ -118,7 +115,7 @@ jobs:
           cmake -S . -B build-shared -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
             -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
-            -DBUILD_SHARED=ON -DZYDIS_VERSION=%VER%
+            -DBUILD_SHARED=ON -DZYDIS_VERSION=%BASE%
           if errorlevel 1 exit /b 1
           cmake --build build-shared
           if errorlevel 1 exit /b 1
@@ -128,7 +125,7 @@ jobs:
           copy /y build-shared\Zycore.lib "%STAGE%\lib\shared\" >nul
 
           cd dist
-          tar -a -cf "zydis-v%VER%-wdk7-%ARCH%.zip" "zydis-v%VER%-wdk7-%ARCH%"
+          tar -a -cf "zydis-v%BASE%-wdk7-%ARCH%.zip" "zydis-v%BASE%-wdk7-%ARCH%"
           dir
 
       - name: upload artifact
@@ -138,16 +135,22 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  # On master, publish an immutable build release v<base>.<build> and roll the
+  # v<base> alias release/tag to the same commit so external consumers can always
+  # pin the plain Zydis version (e.g. GIT_TAG v4.1.1).
   release:
     needs:
       - version
       - portable
       - package
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
       - name: download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -155,14 +158,30 @@ jobs:
           pattern: zydis-wdk7-*
           merge-multiple: true
 
-      - name: list artifacts
-        run: ls -la dist
+      - name: publish build release and roll alias
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          BASE="${{ needs.version.outputs.base }}"
+          VERSION="${{ needs.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          ls -la dist
 
-      - name: create release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          files: dist/*.zip
+          # 1. immutable per-build release + tag
+          gh release create "v${VERSION}" \
+            --target "${SHA}" \
+            --title "v${VERSION}" \
+            --notes "WDK7 (VC9) build of Zydis ${BASE}, CI build ${{ github.run_number }}." \
+            dist/*.zip
+
+          # 2. rolling alias: delete the existing v${BASE} release AND its tag (so it
+          #    is never left as an orphaned draft), then recreate it at this commit.
+          if gh release view "v${BASE}" >/dev/null 2>&1; then
+            gh release delete "v${BASE}" --yes --cleanup-tag
+          fi
+          gh release create "v${BASE}" \
+            --target "${SHA}" \
+            --title "v${BASE}" \
+            --notes "Rolling alias - always the latest WDK7 build of Zydis ${BASE} (currently v${VERSION})." \
+            dist/*.zip
