@@ -15,7 +15,7 @@ decoder + formatter configuration. Consumed as a local CMake dependency
 - Zydis 4.1.1 + Zycore, plain source, no submodules.
 - Builds with WDK 7 (VC9) and modern MSVC / GCC / Clang.
 - Full decoder and formatter under WDK 7.
-- Static or shared library (`BUILD_SHARED_LIBS`), x86 and x64.
+- Static or shared library (`BUILD_SHARED`), x86 and x64.
 
 ## Usage
 
@@ -42,6 +42,6 @@ cmake --build build
 Shared library (DLL + import lib):
 
 ```sh
-cmake -S . -B build -DBUILD_SHARED_LIBS=ON
+cmake -S . -B build -DBUILD_SHARED=ON
 cmake --build build
 ```
