@@ -34,24 +34,24 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Zydis version: ${VERSION}"
 
-  build:
+  # Sanity build on a modern toolchain - the fork is also consumed under regular
+  # MSVC/GCC/Clang, not only WDK7. Builds both static and shared, then verifies
+  # the local-dependency consumption path (add_subdirectory).
+  portable:
     needs: version
     runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v5
 
-      - name: configure
-        run: cmake -S . -B build -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+      - name: build static and shared
+        run: |
+          cmake -S . -B build-static -DBUILD_SHARED_LIBS=OFF -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+          cmake --build build-static --parallel
+          cmake -S . -B build-shared -DBUILD_SHARED_LIBS=ON -DZYDIS_VERSION=${{ needs.version.outputs.version }}
+          cmake --build build-shared --parallel
 
-      - name: build
-        run: cmake --build build --parallel
-
-      # This fork is consumed only as a local CMake dependency (FetchContent /
-      # add_subdirectory) - no install()/find_package(). Verify that consumption
-      # path directly: build a tiny consumer that add_subdirectory()s this tree
-      # and links the Zydis::Zydis target.
-      - name: verify local consumption
+      - name: verify local consumption (add_subdirectory)
         run: |
           mkdir -p smoke
           cat > smoke/CMakeLists.txt <<'EOF'
@@ -68,22 +68,101 @@ jobs:
           cmake -S smoke -B smoke-build -DZYDIS_SOURCE_DIR="${GITHUB_WORKSPACE}"
           cmake --build smoke-build --parallel
 
+  # WDK7 (VC9) release artifacts: static libs + shared DLLs with import libs,
+  # plus headers, for x86 (i386) and x64 (amd64).
+  package:
+    needs: version
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [i386, amd64]
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: setup wdk7
+        id: wdk7
+        uses: tinysec/setup-wdk7@v1
+
+      - name: build static + shared and stage artifacts
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          if not "${{ steps.wdk7.outputs.found }}"=="true" (
+            echo setup-wdk7 did not prepare WDK7.
+            exit /b 1
+          )
+          set "VER=${{ needs.version.outputs.version }}"
+          set "ARCH=${{ matrix.arch }}"
+          set "STAGE=dist\zydis-v%VER%-wdk7-%ARCH%"
+          if exist dist rmdir /s /q dist
+          mkdir "%STAGE%\lib\static"
+          mkdir "%STAGE%\lib\shared"
+          xcopy /e /i /y include "%STAGE%\include" >nul
+          copy /y LICENSE "%STAGE%\" >nul
+
+          rem --- static library ---
+          cmake -S . -B build-static -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
+            -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
+            -DBUILD_SHARED_LIBS=OFF -DZYDIS_VERSION=%VER%
+          if errorlevel 1 exit /b 1
+          cmake --build build-static
+          if errorlevel 1 exit /b 1
+          copy /y build-static\Zydis.lib  "%STAGE%\lib\static\" >nul
+          copy /y build-static\Zycore.lib "%STAGE%\lib\static\" >nul
+
+          rem --- shared library (DLL + import .lib) ---
+          cmake -S . -B build-shared -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
+            -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
+            -DBUILD_SHARED_LIBS=ON -DZYDIS_VERSION=%VER%
+          if errorlevel 1 exit /b 1
+          cmake --build build-shared
+          if errorlevel 1 exit /b 1
+          copy /y build-shared\Zydis.dll  "%STAGE%\lib\shared\" >nul
+          copy /y build-shared\Zydis.lib  "%STAGE%\lib\shared\" >nul
+          copy /y build-shared\Zycore.dll "%STAGE%\lib\shared\" >nul
+          copy /y build-shared\Zycore.lib "%STAGE%\lib\shared\" >nul
+
+          cd dist
+          tar -a -cf "zydis-v%VER%-wdk7-%ARCH%.zip" "zydis-v%VER%-wdk7-%ARCH%"
+          dir
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zydis-wdk7-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   release:
     needs:
       - version
-      - build
+      - portable
+      - package
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      # Consumers pull this fork by git tag (FetchContent), so the release only
-      # needs to exist - GitHub attaches the source archives automatically.
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: zydis-wdk7-*
+          merge-multiple: true
+
+      - name: list artifacts
+        run: ls -la dist
+
       - name: create release
         uses: softprops/action-gh-release@v1
-        continue-on-error: true
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           draft: false
           prerelease: false
+          files: dist/*.zip
