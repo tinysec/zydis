@@ -1,164 +1,226 @@
-name: build
+name: CI
+
+# Builds Zydis (4.1.1, with Zycore) across toolchains, architectures, link types
+# and CRTs, and publishes the prebuilt libraries so downstream projects can either
+# build from source (FetchContent) or download the variant that matches their
+# environment and compile options.
+#
+# Stages:
+#   1. version      - compute the version strings once.
+#   2. portable     - Linux/GCC sanity build (not released).
+#   3. build-msvc   - modern Visual Studio: shared (/MT) and static (/MT and /MD).
+#   4. build-wdk7   - legacy WDK 7 (VC9): static and shared.
+#   5. release      - immutable per-build release on vX.Y.Z.<build> plus a rolling
+#                     vX.Y.Z release whose asset names are stable.
 
 on:
   push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
+    branches: [ "master", "main" ]
+  workflow_dispatch:
 
-# The release tags (v<X.Y.Z>.<build> and the v<X.Y.Z> alias) are created BY this
-# workflow, so it must not trigger on tag pushes (that would recurse).
+permissions:
+  contents: write
 
 env:
-  ZYDIS_VERSION: 4.1.1
+  ZYDIS_VERSION: "4.1.1"
 
 jobs:
+  # 1. Compute version strings once and share them with downstream jobs.
   version:
     runs-on: ubuntu-latest
     outputs:
-      base: ${{ steps.v.outputs.base }}        # X.Y.Z  - the Zydis semver
-      version: ${{ steps.v.outputs.version }}  # X.Y.Z.<build> - per-CI-build
+      base: ${{ steps.compute.outputs.base }}
+      version: ${{ steps.compute.outputs.version }}
+      alias: ${{ steps.compute.outputs.alias }}
     steps:
-      - name: derive version
-        id: v
-        shell: bash
+      - name: Compute version strings
+        id: compute
         run: |
           BASE="${ZYDIS_VERSION}"
-          VERSION="${BASE}.${{ github.run_number }}"
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "build version: ${VERSION} (alias v${BASE})"
+          ALIAS="v${BASE}"
+          VERSION="${ALIAS}.${GITHUB_RUN_NUMBER}"
+          echo "base=${BASE}" >> "${GITHUB_OUTPUT}"
+          echo "alias=${ALIAS}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Alias tag:     ${ALIAS}"
+          echo "Versioned tag: ${VERSION}"
 
-  # Sanity build on a modern toolchain - the fork is also consumed under regular
-  # MSVC/GCC/Clang. Builds both static and shared.
+  # 2. Sanity build on Linux/GCC (the sources are also consumed under GCC/Clang).
+  #    Not packaged - this only proves the source still builds portably.
   portable:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v5
 
-      - name: build static and shared
+      - name: Build static and shared
         run: |
           cmake -S . -B build-static -DBUILD_SHARED=OFF -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           cmake --build build-static --parallel
           cmake -S . -B build-shared -DBUILD_SHARED=ON -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           cmake --build build-shared --parallel
 
-  # WDK7 (VC9) release artifacts: static libs + shared DLLs with import libs,
-  # plus headers, for x86 (i386) and x64 (amd64).
-  package:
+  # 3. Modern Visual Studio libraries. Shared (DLL) is /MT only (self-contained);
+  #    static is shipped in both /MT and /MD so the consumer can match its own CRT.
+  build-msvc:
+    needs: version
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, cmake_platform: x64,   link: shared, shared: "ON",  runtime: MultiThreaded,    label: shared }
+          - { arch: x86, cmake_platform: Win32, link: shared, shared: "ON",  runtime: MultiThreaded,    label: shared }
+          - { arch: x64, cmake_platform: x64,   link: static, shared: "OFF", runtime: MultiThreaded,    label: static-mt }
+          - { arch: x64, cmake_platform: x64,   link: static, shared: "OFF", runtime: MultiThreadedDLL, label: static-md }
+          - { arch: x86, cmake_platform: Win32, link: static, shared: "OFF", runtime: MultiThreaded,    label: static-mt }
+          - { arch: x86, cmake_platform: Win32, link: static, shared: "OFF", runtime: MultiThreadedDLL, label: static-md }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -B build -S . -G "Visual Studio 17 2022" -A ${{ matrix.cmake_platform }}
+          -DBUILD_SHARED=${{ matrix.shared }}
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=${{ matrix.runtime }}
+          -DZYDIS_VERSION=${{ needs.version.outputs.base }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          $arch = "${{ matrix.arch }}"
+          $label = "${{ matrix.label }}"
+
+          New-Item -ItemType Directory -Force pkg/lib | Out-Null
+          if ("${{ matrix.link }}" -eq "shared") {
+            New-Item -ItemType Directory -Force pkg/bin | Out-Null
+            Copy-Item build/Release/Zydis.dll, build/Release/Zycore.dll pkg/bin/
+          }
+          Copy-Item build/Release/Zydis.lib, build/Release/Zycore.lib pkg/lib/
+          Copy-Item include pkg/include -Recurse
+          Copy-Item LICENSE pkg/
+          Compress-Archive -Path pkg/* -DestinationPath "zydis-$version-msvc-$arch-$label.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zydis-msvc-${{ matrix.arch }}-${{ matrix.label }}
+          path: zydis-*.zip
+
+  # 4. Legacy WDK 7 (VC9) libraries: static and shared, x64 and x86.
+  build-wdk7:
     needs: version
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        arch: [i386, amd64]
+        include:
+          - { arch: x64, wdk_arch: amd64, link: static, shared: "OFF", label: static }
+          - { arch: x64, wdk_arch: amd64, link: shared, shared: "ON",  label: shared }
+          - { arch: x86, wdk_arch: i386,  link: static, shared: "OFF", label: static }
+          - { arch: x86, wdk_arch: i386,  link: shared, shared: "ON",  label: shared }
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v5
 
-      - name: setup wdk7
+      - name: Setup WDK7
         id: wdk7
         uses: tinysec/setup-wdk7@v1
 
-      - name: build static + shared and stage artifacts
+      - name: Configure and build
         shell: cmd
         run: |
           @echo off
-          setlocal EnableExtensions
           if not "${{ steps.wdk7.outputs.found }}"=="true" (
             echo setup-wdk7 did not prepare WDK7.
             exit /b 1
           )
-          set "BASE=${{ needs.version.outputs.base }}"
-          set "ARCH=${{ matrix.arch }}"
-          set "STAGE=dist\zydis-v%BASE%-wdk7-%ARCH%"
-          if exist dist rmdir /s /q dist
-          mkdir "%STAGE%\lib\static"
-          mkdir "%STAGE%\lib\shared"
-          xcopy /e /i /y include "%STAGE%\include" >nul
-          copy /y LICENSE "%STAGE%\" >nul
-
-          rem --- static library ---
-          cmake -S . -B build-static -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
+          cmake -S . -B build -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
-            -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
-            -DBUILD_SHARED=OFF -DZYDIS_VERSION=%BASE%
+            -DWDK7_ARCH=${{ matrix.wdk_arch }} -DCMAKE_BUILD_TYPE=Release ^
+            -DBUILD_SHARED=${{ matrix.shared }} -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           if errorlevel 1 exit /b 1
-          cmake --build build-static
+          cmake --build build
           if errorlevel 1 exit /b 1
-          copy /y build-static\Zydis.lib  "%STAGE%\lib\static\" >nul
-          copy /y build-static\Zycore.lib "%STAGE%\lib\static\" >nul
 
-          rem --- shared library (DLL + import .lib) ---
-          cmake -S . -B build-shared -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
-            -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
-            -DWDK7_ARCH=%ARCH% -DCMAKE_BUILD_TYPE=Release ^
-            -DBUILD_SHARED=ON -DZYDIS_VERSION=%BASE%
-          if errorlevel 1 exit /b 1
-          cmake --build build-shared
-          if errorlevel 1 exit /b 1
-          copy /y build-shared\Zydis.dll  "%STAGE%\lib\shared\" >nul
-          copy /y build-shared\Zydis.lib  "%STAGE%\lib\shared\" >nul
-          copy /y build-shared\Zycore.dll "%STAGE%\lib\shared\" >nul
-          copy /y build-shared\Zycore.lib "%STAGE%\lib\shared\" >nul
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          $arch = "${{ matrix.arch }}"
+          $label = "${{ matrix.label }}"
 
-          cd dist
-          tar -a -cf "zydis-v%BASE%-wdk7-%ARCH%.zip" "zydis-v%BASE%-wdk7-%ARCH%"
-          dir
+          New-Item -ItemType Directory -Force pkg/lib | Out-Null
+          if ("${{ matrix.link }}" -eq "shared") {
+            New-Item -ItemType Directory -Force pkg/bin | Out-Null
+            Copy-Item build/Zydis.dll, build/Zycore.dll pkg/bin/
+          }
+          Copy-Item build/Zydis.lib, build/Zycore.lib pkg/lib/
+          Copy-Item include pkg/include -Recurse
+          Copy-Item LICENSE pkg/
+          Compress-Archive -Path pkg/* -DestinationPath "zydis-$version-wdk7-$arch-$label.zip"
 
-      - name: upload artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zydis-wdk7-${{ matrix.arch }}
-          path: dist/*.zip
-          if-no-files-found: error
+          name: zydis-wdk7-${{ matrix.arch }}-${{ matrix.label }}
+          path: zydis-*.zip
 
-  # On master, publish an immutable build release v<base>.<build> and roll the
-  # v<base> alias release/tag to the same commit so external consumers can always
-  # pin the plain Zydis version (e.g. GIT_TAG v4.1.1).
+  # 5. Publish the versioned release and refresh the rolling alias release.
   release:
-    needs:
-      - version
-      - portable
-      - package
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [ version, portable, build-msvc, build-wdk7 ]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: download artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: zydis-wdk7-*
-          merge-multiple: true
 
-      - name: publish build release and roll alias
+      - name: Publish versioned release, move alias tag, refresh rolling release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          ALIAS: ${{ needs.version.outputs.alias }}
+          BASE: ${{ needs.version.outputs.base }}
         run: |
-          set -e
-          BASE="${{ needs.version.outputs.base }}"
-          VERSION="${{ needs.version.outputs.version }}"
-          SHA="${{ github.sha }}"
-          ls -la dist
+          set -euo pipefail
 
-          # 1. immutable per-build release + tag
-          gh release create "v${VERSION}" \
-            --target "${SHA}" \
-            --title "v${VERSION}" \
-            --notes "WDK7 (VC9) build of Zydis ${BASE}, CI build ${{ github.run_number }}." \
-            dist/*.zip
+          # 1. Immutable per-build release on the 4-part tag, kept as "latest".
+          gh release create "${VERSION}" \
+            --target "${GITHUB_SHA}" \
+            --title "${VERSION}" \
+            --notes "Automated build of Zydis ${BASE} (build ${GITHUB_RUN_NUMBER}): modern MSVC (x64/x86, static /MT and /MD, shared) and legacy WDK 7 (x64/x86, static and shared)." \
+            --latest \
+            $(find dist -type f | sort)
 
-          # 2. rolling alias: keep ONLY a tag (no release). Drop any pre-existing
-          #    v${BASE} release, then point the v${BASE} tag at this commit so
-          #    consumers can pin `GIT_TAG v${BASE}` to follow the latest build.
-          gh release delete "v${BASE}" --yes 2>/dev/null || true
-          git push origin --force "${SHA}:refs/tags/v${BASE}"
+          # 2. Re-point the 3-part alias tag to this build's commit.
+          git tag --force "${ALIAS}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${ALIAS}"
+
+          # 3. Refresh the rolling release on the alias tag with build-number-free
+          #    asset names, so the download URLs are stable across builds, e.g.
+          #    releases/download/v4.1.1/zydis-msvc-x64-static-mt.zip.
+          mkdir -p alias
+          for f in $(find dist -type f); do
+            base="$(basename "${f}")"
+            cp "${f}" "alias/zydis-${base#zydis-${VERSION}-}"
+          done
+
+          gh release delete "${ALIAS}" --yes --cleanup-tag=false || true
+          gh release create "${ALIAS}" \
+            --target "${GITHUB_SHA}" \
+            --title "${ALIAS} (latest: ${VERSION})" \
+            --notes "Rolling release tracking the latest build (currently ${VERSION}). Asset names are stable across builds for fixed download URLs." \
+            --latest=false \
+            $(find alias -type f | sort)
