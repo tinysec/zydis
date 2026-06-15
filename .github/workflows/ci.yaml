@@ -45,21 +45,59 @@ jobs:
           echo "Alias tag:     ${ALIAS}"
           echo "Versioned tag: ${VERSION}"
 
-  # 2. Sanity build on Linux/GCC (the sources are also consumed under GCC/Clang).
-  #    Not packaged - this only proves the source still builds portably.
-  portable:
+  # 2. Linux (GCC) libraries: static (.a) and shared (.so) for x64 and x86.
+  build-linux:
     needs: version
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, link: static, shared: "OFF", bits: "",     extra_packages: "",                          label: static }
+          - { arch: x64, link: shared, shared: "ON",  bits: "",     extra_packages: "",                          label: shared }
+          - { arch: x86, link: static, shared: "OFF", bits: "-m32", extra_packages: "gcc-multilib g++-multilib", label: static }
+          - { arch: x86, link: shared, shared: "ON",  bits: "-m32", extra_packages: "gcc-multilib g++-multilib", label: shared }
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Build static and shared
+      - name: Install 32-bit toolchain
+        if: matrix.extra_packages != ''
         run: |
-          cmake -S . -B build-static -DBUILD_SHARED=OFF -DZYDIS_VERSION=${{ needs.version.outputs.base }}
-          cmake --build build-static --parallel
-          cmake -S . -B build-shared -DBUILD_SHARED=ON -DZYDIS_VERSION=${{ needs.version.outputs.base }}
-          cmake --build build-shared --parallel
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.extra_packages }}
+
+      - name: Configure and build
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_SHARED=${{ matrix.shared }}
+          "-DCMAKE_C_FLAGS=${{ matrix.bits }}"
+          "-DCMAKE_CXX_FLAGS=${{ matrix.bits }}"
+          -DZYDIS_VERSION=${{ needs.version.outputs.base }}
+          && cmake --build build --parallel "$(nproc)"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.version }}"
+          arch="${{ matrix.arch }}"
+          label="${{ matrix.label }}"
+
+          mkdir -p pkg/lib pkg/include
+          if [ "${{ matrix.link }}" = "shared" ]; then
+            find build \( -name 'libZydis.so*' -o -name 'libZycore.so*' \) -exec cp -a {} pkg/lib/ \;
+          else
+            find build \( -name 'libZydis.a' -o -name 'libZycore.a' \) -exec cp {} pkg/lib/ \;
+          fi
+          cp -r include/. pkg/include/
+          cp LICENSE pkg/
+          tar -czf "zydis-${version}-linux-${arch}-${label}.tar.gz" -C pkg .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zydis-linux-${{ matrix.arch }}-${{ matrix.label }}
+          path: zydis-*.tar.gz
 
   # 3. Modern Visual Studio libraries. Shared (DLL) is /MT only (self-contained);
   #    static is shipped in both /MT and /MD so the consumer can match its own CRT.
@@ -182,7 +220,7 @@ jobs:
 
   # 5. Publish the versioned release and refresh the rolling alias release.
   release:
-    needs: [ version, portable, build-msvc, build-wdk7 ]
+    needs: [ version, build-linux, build-msvc, build-wdk7 ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -208,7 +246,7 @@ jobs:
           gh release create "${VERSION}" \
             --target "${GITHUB_SHA}" \
             --title "${VERSION}" \
-            --notes "Automated build of Zydis ${BASE} (build ${GITHUB_RUN_NUMBER}): modern MSVC (x64/x86, static /MT and /MD, shared) and legacy WDK 7 (x64/x86, user-mode static and shared, kernel-mode static)." \
+            --notes "Automated build of Zydis ${BASE} (build ${GITHUB_RUN_NUMBER}): modern MSVC (x64/x86, static /MT and /MD, shared), Linux/GCC (x64/x86, static and shared), and legacy WDK 7 (x64/x86, user-mode static and shared, kernel-mode static)." \
             --latest \
             $(find dist -type f | sort)
 
