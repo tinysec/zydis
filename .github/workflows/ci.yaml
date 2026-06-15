@@ -113,7 +113,11 @@ jobs:
           name: zydis-msvc-${{ matrix.arch }}-${{ matrix.label }}
           path: zydis-*.zip
 
-  # 4. Legacy WDK 7 (VC9) libraries: static and shared, x64 and x86.
+  # 4. Legacy WDK 7 (VC9) libraries. User-mode and kernel-mode are different
+  #    builds and must not be mixed: a user-mode library links the WDK 7 C runtime
+  #    and is full-featured, while a kernel-mode library is no-libc (ZYAN_NO_LIBC)
+  #    and builds the minimal decoder profile (no formatter/encoder) for drivers.
+  #    Kernel-mode is static only - drivers statically link it; there is no DLL.
   build-wdk7:
     needs: version
     runs-on: windows-latest
@@ -121,10 +125,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x64, wdk_arch: amd64, link: static, shared: "OFF", label: static }
-          - { arch: x64, wdk_arch: amd64, link: shared, shared: "ON",  label: shared }
-          - { arch: x86, wdk_arch: i386,  link: static, shared: "OFF", label: static }
-          - { arch: x86, wdk_arch: i386,  link: shared, shared: "ON",  label: shared }
+          - { arch: x64, wdk_arch: amd64, wdk_mode: USER,   zydis_kernel: "OFF", link: static, shared: "OFF", label: user-static }
+          - { arch: x64, wdk_arch: amd64, wdk_mode: USER,   zydis_kernel: "OFF", link: shared, shared: "ON",  label: user-shared }
+          - { arch: x86, wdk_arch: i386,  wdk_mode: USER,   zydis_kernel: "OFF", link: static, shared: "OFF", label: user-static }
+          - { arch: x86, wdk_arch: i386,  wdk_mode: USER,   zydis_kernel: "OFF", link: shared, shared: "ON",  label: user-shared }
+          - { arch: x64, wdk_arch: amd64, wdk_mode: KERNEL, zydis_kernel: "ON",  link: static, shared: "OFF", label: kernel-static }
+          - { arch: x86, wdk_arch: i386,  wdk_mode: KERNEL, zydis_kernel: "ON",  link: static, shared: "OFF", label: kernel-static }
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -143,7 +149,9 @@ jobs:
           )
           cmake -S . -B build -G "${{ steps.wdk7.outputs.cmake-generator }}" ^
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.wdk7.outputs.toolchain-file }}" ^
-            -DWDK7_ARCH=${{ matrix.wdk_arch }} -DCMAKE_BUILD_TYPE=Release ^
+            -DWDK7_ARCH=${{ matrix.wdk_arch }} -DWDK7_DEFAULT_MODE=${{ matrix.wdk_mode }} ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DZYDIS_KERNEL_MODE=${{ matrix.zydis_kernel }} ^
             -DBUILD_SHARED=${{ matrix.shared }} -DZYDIS_VERSION=${{ needs.version.outputs.base }}
           if errorlevel 1 exit /b 1
           cmake --build build
@@ -200,7 +208,7 @@ jobs:
           gh release create "${VERSION}" \
             --target "${GITHUB_SHA}" \
             --title "${VERSION}" \
-            --notes "Automated build of Zydis ${BASE} (build ${GITHUB_RUN_NUMBER}): modern MSVC (x64/x86, static /MT and /MD, shared) and legacy WDK 7 (x64/x86, static and shared)." \
+            --notes "Automated build of Zydis ${BASE} (build ${GITHUB_RUN_NUMBER}): modern MSVC (x64/x86, static /MT and /MD, shared) and legacy WDK 7 (x64/x86, user-mode static and shared, kernel-mode static)." \
             --latest \
             $(find dist -type f | sort)
 
