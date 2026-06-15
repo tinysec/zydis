@@ -71,9 +71,15 @@ Pick the archive that matches your build:
 | Modern MSVC | `zydis-msvc-<arch>-shared.zip` | DLL + import lib, self-contained (`/MT`) |
 | Modern MSVC | `zydis-msvc-<arch>-static-mt.zip` | static lib, `/MT` (no VC++ redistributable) |
 | Modern MSVC | `zydis-msvc-<arch>-static-md.zip` | static lib, `/MD` (dynamic CRT) |
-| WDK 7 (VC9) | `zydis-wdk7-<arch>-static.zip` | static lib for the WDK 7 toolchain |
-| WDK 7 (VC9) | `zydis-wdk7-<arch>-shared.zip` | DLL + import lib for the WDK 7 toolchain |
+| WDK 7 user-mode | `zydis-wdk7-<arch>-user-static.zip` | full-featured static lib, WDK 7 user CRT |
+| WDK 7 user-mode | `zydis-wdk7-<arch>-user-shared.zip` | DLL + import lib, WDK 7 user CRT |
+| WDK 7 kernel-mode | `zydis-wdk7-<arch>-kernel-static.zip` | no-libc minimal decoder for drivers (static only) |
 
 `<arch>` is `x64` or `x86`. Each archive contains `lib/` (and `bin/` for shared),
 the `include/` headers, and `LICENSE`. A static library's CRT must match your
 project, so choose `-static-mt` for `/MT` projects and `-static-md` for `/MD`.
+
+WDK 7 user-mode and kernel-mode libraries are not interchangeable: the user-mode
+build links the WDK 7 C runtime and is full-featured, while the kernel-mode build
+is no-libc and exposes only the minimal decoder (no formatter/encoder) for use
+inside drivers. Link the kernel-mode static library into kernel-mode targets only.
