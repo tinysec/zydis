@@ -71,6 +71,8 @@ Pick the archive that matches your build:
 | Modern MSVC | `zydis-msvc-<arch>-shared.zip` | DLL + import lib, self-contained (`/MT`) |
 | Modern MSVC | `zydis-msvc-<arch>-static-mt.zip` | static lib, `/MT` (no VC++ redistributable) |
 | Modern MSVC | `zydis-msvc-<arch>-static-md.zip` | static lib, `/MD` (dynamic CRT) |
+| Linux (GCC) | `zydis-linux-<arch>-static.tar.gz` | static lib (`.a`) |
+| Linux (GCC) | `zydis-linux-<arch>-shared.tar.gz` | shared lib (`.so`) |
 | WDK 7 user-mode | `zydis-wdk7-<arch>-user-static.zip` | full-featured static lib, WDK 7 user CRT |
 | WDK 7 user-mode | `zydis-wdk7-<arch>-user-shared.zip` | DLL + import lib, WDK 7 user CRT |
 | WDK 7 kernel-mode | `zydis-wdk7-<arch>-kernel-static.zip` | no-libc minimal decoder for drivers (static only) |
